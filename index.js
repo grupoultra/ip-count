@@ -56,11 +56,6 @@ exports.handler = function( event, context ) {
     });
 };
 
-var encrypt = function (myPlaintextPassword) {
-    var saltRounds = 10;
-    return bcrypt.hash(myPlaintextPassword, saltRounds);
-};
-
 var dynamoSCAN = function(params) {
     return docClient.scan(params).promise();
 };
@@ -68,9 +63,3 @@ var dynamoSCAN = function(params) {
 var dynamoPUT = function(params){
     return docClient.put(params).promise();
 };
-
-var dynamoUPDATE = function(params){
-    return docClient.update(params).promise();
-};
-
-
