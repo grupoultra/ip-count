@@ -1,0 +1,8 @@
+{
+  "operation": "create",
+  "accessKeyId": "AKIAIVYG2UJZJZWOOKLA",
+  "secretAccessKey": "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",
+  "region": "us-east-1",
+  "senderAddress": "alexis.ibarra@ultra.sur.top",
+  "frontendURL": "http://ultra-newsletter.s3-website-us-east-1.amazonaws.com/"
+}
