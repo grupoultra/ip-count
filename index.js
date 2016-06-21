@@ -1,6 +1,9 @@
 "use strict";
 var config = require('./config.json');
 var _ = require('lodash');
+var ipLib = require('ip');
+var amazon_ranges = require('./amazon-ranges.json');
+var cloudflare_ranges = require('./cloudflare_ranges.json');
 
 var aws = require('aws-sdk');
 aws.config.update({
@@ -17,13 +20,7 @@ exports.handler = function( event, context ) {
     var datetime = new Date();
     var tableName = "ip-count";
 
-    var params = {
-        TableName: tableName,
-        Item: {
-            "ip": event.ip,
-            "datetime": datetime.toISOString()
-        }
-    };
+    var params = {};
 
     if(event.getIps){
         params = { TableName: tableName };
@@ -41,10 +38,21 @@ exports.handler = function( event, context ) {
             });
 
     } else {
+        var IPToRegister = getString(processIpList(event.ip));
+        console.log(IPToRegister);
+
+        params = {
+            TableName: tableName,
+            Item: {
+                "ip": IPToRegister,
+                "datetime": datetime.toISOString()
+            }
+        };
+
         dynamoPUT(params)
             .then(function (data) {
                 console.log(data);
-                return SESsendEmail(event.ip);
+                return SESsendEmail(IPToRegister);
             })
             .then(function (data) {
                 console.log(data);
@@ -55,6 +63,67 @@ exports.handler = function( event, context ) {
                 context.done(err);
             });
     }
+};
+
+var processIpList = function(ipList){
+    var n_1 = getN_1(ipList);
+    var publics = getPublicsOnly(n_1);
+
+    var nonAmazon = getNonAmazon(publics);
+
+    return nonAmazon;
+};
+
+var getN_1 = function(input){
+    var input_wo_spaces = input.replace(/\s+/g, '');
+    var input_prev_colon = input_wo_spaces.split(':')[0];
+    var input_sep_comma = input_prev_colon.split(',');
+    var input_n_1 = input_sep_comma.reverse().slice(1);
+
+    return input_n_1.reverse();
+};
+
+var getPublicsOnly = function(ipsArray){
+    return _.filter(ipsArray, function(ip){
+        return !ipLib.isPrivate(ip);
+    })
+};
+
+var getNonAmazon = function(ipsArray){
+    return _.filter(ipsArray, function(ip){
+        return !checkBelongsToAmazon(ip);
+    });
+};
+
+var checkBelongsToAmazon = function(ip) {
+    var amazon_ranges = getAmazonRanges();
+    var result = false;
+
+    _.forEach(amazon_ranges, function(range){
+        if(ipLib.cidrSubnet(range).contains(ip)){
+            result = true;
+
+            return false;
+        }
+    });
+
+    return result;
+};
+
+var getAmazonRanges = function(){
+    var cloudfront_prefixes = _.filter(amazon_ranges.prefixes, function(item){
+        return item.service === 'CLOUDFRONT' ;
+    });
+
+    var cloudfront_ranges = _.map(cloudfront_prefixes, function(prefix_info){
+        return prefix_info.ip_prefix;
+    });
+
+    return _.concat(cloudfront_ranges, cloudflare_ranges.ranges);
+};
+
+var getString = function(ipsArray){
+    return ipsArray.join(', ');
 };
 
 var SESsendEmail = function(ip){
