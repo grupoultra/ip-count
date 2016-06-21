@@ -1,5 +1,6 @@
 "use strict";
 var config = require('./config.json');
+var _ = require('lodash');
 
 var aws = require('aws-sdk');
 aws.config.update({
@@ -13,47 +14,78 @@ var ses = new aws.SES({apiVersion: '2010-12-01'});
 var docClient = new aws.DynamoDB.DocumentClient();
 
 exports.handler = function( event, context ) {
-  var tableName = "ip-count";
-  var params = {
-      TableName : tableName,
-      ProjectionExpression  : "ip, ccount",
-      FilterExpression: "ip = :ip",
-      ExpressionAttributeValues  : {":ip": event.ip}
-  };
+    var datetime = new Date();
+    var tableName = "ip-count";
 
-  dynamoSCAN(params)
-    .then(function(data){
-        var ips = data.Items;
-        var count = 1;
-        console.log("data", data);
-        console.log("ips", ips);
-        if(ips.length > 0) {
-          count = ips[0]['ccount'] + 1;
+    var params = {
+        TableName: tableName,
+        Item: {
+            "ip": event.ip,
+            "datetime": datetime.toISOString()
         }
+    };
 
-        return count;
-    })
-    .then(function(count) {
-        return {
-            TableName: tableName,
-            Item: {
-                "ip": event.ip,
-                "ccount": count
+    if(event.getIps){
+        params = { TableName: tableName };
+
+        dynamoSCAN(params)
+            .then(function(data){
+                var ip_count = {};
+                console.log(data);
+                _.forEach(_.groupBy(data.Items, 'ip'), function(value, key) {
+                    ip_count[key] = value.length;
+                });
+
+                console.log(ip_count);
+                context.done(null, ip_count);
+            });
+
+    } else {
+        dynamoPUT(params)
+            .then(function (data) {
+                console.log(data);
+                return SESsendEmail(event.ip);
+            })
+            .then(function (data) {
+                console.log(data);
+                context.done(null, data);
+            })
+            .catch(function (err) {
+                console.log("error: ", err.errorMessage[0]);
+                context.done(err);
+            });
+    }
+};
+
+var SESsendEmail = function(ip){
+    console.log("ip registrada", ip);
+
+    var content =
+        "<p>El IP <b>" + ip + "</b> ha sido incluido en la lista de posibles ofensores porque rompió el umbral de 100 "
+        + "hits/seg. No se ha tomado ninguna acción al respecto (ej. no se ha bloqueado)</p>"
+        + "<p> Timestamp: "+ new Date() +"</p>"
+        + "<p>-------------------------------</p>"
+        + "<p>Soporte</p>"
+        + "<p>" + config.senderAddress + "</p>"
+        + "<p>Grupo ULTRA</p>"
+        + "<p>-------------------------------</p>";
+    var subject = "Nueva IP registrada en Xpander: " + ip;
+    return ses.sendEmail({
+        Source: config.senderAddress,
+        // Destination: { ToAddresses: [ config.senderAddress ] },
+        Destination: { ToAddresses: [ "jhounny.nunez@ultra.sur.top", "cesar.obach@ultra.sur.top" ] },
+        // Destination: { ToAddresses: [ config.senderAddress, "jhounny.nunez@ultra.sur.top", "cesar.obach@ultra.sur.top" ] },
+        Message: {
+            Subject: {
+                Data: subject
+            },
+            Body: {
+                Html: {
+                    Data: content
+                }
             }
         }
-    })
-    .then(function(params){
-      console.log(params);
-        return dynamoPUT(params)
-    })
-    .then(function(data) {
-        console.log(data);
-        context.done(null, data);
-    })
-    .catch(function(err){
-        console.log("error: ", err.errorMessage[0]);
-        context.done(err);
-    });
+    }).promise()
 };
 
 var dynamoSCAN = function(params) {
